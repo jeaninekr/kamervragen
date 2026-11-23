@@ -1,4 +1,4 @@
-# Is deze vraag al een keer beantwoord?
+# Is mijn vraag al gesteld?
 
 Een zoekwebsite om snel eerdere antwoorden op Kamervragen, Kamerbrieven, nota's naar aanleiding van het verslag en debatten over belastingen terug te vinden. Je plakt een (nieuwe) Kamervraag of typt een paar steekwoorden, en de site laat de best passende vraag-en-antwoordpassages zien. Elke passage heeft een bronvermelding en een link naar het officiële document.
 
