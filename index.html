@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Is deze vraag al een keer beantwoord?</title>
+  <meta name="description" content="Zoek in eerdere antwoorden op Kamervragen en Kamerstukken over belastingen.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3a68'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='700'>?</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1>Is deze vraag al een keer beantwoord?</h1>
+      <p class="tagline">Zoek in eerdere antwoorden op Kamervragen, Kamerbrieven, nota's en debatten over belastingen. Plak een vraag of typ een paar steekwoorden.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <form id="search-form" class="search-card" autocomplete="off">
+      <label for="q" class="sr-only">Kamervraag of steekwoorden</label>
+      <textarea id="q" name="q" rows="4" placeholder="Bijv.: De leden van de JA21-fractie vragen wat de gevolgen van de carry-back zullen zijn in een brede vermogenswinstbelasting.&#10;&#10;Of steekwoorden: box 3 groene beleggingen"></textarea>
+
+      <div class="search-row">
+        <button type="submit" class="btn primary" id="search-btn">Zoeken</button>
+        <span class="hint">Ctrl + Enter om te zoeken · gebruik "aanhalingstekens" voor een vaste woordcombinatie</span>
+      </div>
+
+      <details class="filters" id="filters">
+        <summary>Filters</summary>
+        <div class="filter-grid">
+          <fieldset>
+            <legend>Soort stuk</legend>
+            <label><input type="checkbox" name="type" value="aanhangsel" checked> Antwoorden op Kamervragen</label>
+            <label><input type="checkbox" name="type" value="kamerstuk" checked> Kamerstukken (brieven, nota's, MvT, verslagen)</label>
+            <label><input type="checkbox" name="type" value="handelingen"> Handelingen (plenaire debatten)</label>
+          </fieldset>
+          <fieldset>
+            <legend>Onderwerp</legend>
+            <select name="subject" id="subject">
+              <option value="belasting" selected>Financiën | Belasting</option>
+              <option value="alles">Alle onderwerpen</option>
+            </select>
+          </fieldset>
+          <fieldset>
+            <legend>Periode</legend>
+            <div class="dates">
+              <label>Vanaf <input type="date" name="from" id="from" value="2018-01-01"></label>
+              <label>Tot en met <input type="date" name="to" id="to"></label>
+            </div>
+          </fieldset>
+        </div>
+      </details>
+    </form>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <section id="terms-panel" class="terms-panel" hidden>
+      <div class="terms-head">
+        <h2>Gezocht op</h2>
+        <span class="muted small">Klik op × om een term te verwijderen, of voeg er een toe. Het getal is het aantal stukken waarin de term voorkomt.</span>
+      </div>
+      <div id="terms" class="chips"></div>
+      <form id="add-term" class="add-term">
+        <input type="text" id="new-term" placeholder="Term toevoegen…" aria-label="Term toevoegen">
+        <button class="btn" type="submit">Toevoegen</button>
+        <button class="btn" type="button" id="rerun">Opnieuw zoeken met deze termen</button>
+      </form>
+    </section>
+
+    <div class="layout">
+      <section id="results" class="results" aria-label="Zoekresultaten"></section>
+
+      <aside id="concept" class="concept" hidden>
+        <div class="concept-card">
+          <h2>Conceptantwoord</h2>
+          <p class="small"><strong id="sel-count">0</strong> passages geselecteerd. Vink passages aan die als bron moeten dienen.</p>
+          <button class="btn primary block" id="copy-prompt" disabled>Kopieer prompt voor AI-chatbot</button>
+          <p class="small muted">Plak de gekopieerde tekst in de AI-chatbot die je organisatie toestaat. Je eigen prompt kun je hieronder instellen.</p>
+          <details>
+            <summary>Mijn prompt instellen</summary>
+            <p class="small muted">Gebruik <code>{{vraag}}</code> voor de Kamervraag en <code>{{bronnen}}</code> voor de geselecteerde passages. Wordt alleen in deze browser bewaard.</p>
+            <textarea id="prompt-template" rows="12"></textarea>
+            <div class="row-gap">
+              <button class="btn" id="save-prompt" type="button">Opslaan</button>
+              <button class="btn" id="reset-prompt" type="button">Standaard terugzetten</button>
+            </div>
+          </details>
+        </div>
+      </aside>
+    </div>
+
+    <section id="docs" class="docs" hidden>
+      <details>
+        <summary>Alle doorzochte documenten (<span id="doc-count">0</span>)</summary>
+        <ul id="doc-list"></ul>
+      </details>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap small muted">
+      Bron: open data van <a href="https://zoek.officielebekendmakingen.nl" target="_blank" rel="noopener">officielebekendmakingen.nl</a> (KOOP). Alleen openbare stukken; er wordt niets opgeslagen. Controleer altijd de oorspronkelijke tekst.
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
