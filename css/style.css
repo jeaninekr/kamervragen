@@ -110,6 +110,8 @@ fieldset label { display: block; font-size: .92rem; margin: 4px 0; }
 .result.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .result-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: .82rem; color: var(--muted); }
 .badge { display: inline-block; font-size: .75rem; font-weight: 600; letter-spacing: .01em; padding: 2px 8px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.badge.new { background: #fff3d6; color: #7a5200; }
+@media (prefers-color-scheme: dark) { .badge.new { background: #3d3115; color: #f0c870; } }
 .badge.answer { background: #e3f3ea; color: #1d6b45; }
 @media (prefers-color-scheme: dark) { .badge.answer { background: #1d3a2b; color: var(--ok); } }
 .result h3 { font-size: 1rem; margin: 6px 0 2px; line-height: 1.35; }

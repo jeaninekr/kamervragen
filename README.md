@@ -5,6 +5,7 @@ Een zoekwebsite om snel eerdere antwoorden op Kamervragen, Kamerbrieven, nota's 
 ## Hoe het werkt
 
 - **Bron:** de open data van [officielebekendmakingen.nl](https://zoek.officielebekendmakingen.nl) (KOOP). Daarin staan alle Kamerstukken, Aanhangsels van de Handelingen (de antwoorden op Kamervragen) en Handelingen. De site zoekt live, dus nieuwe stukken zijn meteen vindbaar.
+- **Ook de nieuwste stukken:** stukken van de laatste weken zijn vaak nog "onopgemaakt". Die hebben nog geen onderwerp-label en bestaan alleen als PDF. De site neemt ze toch mee en leest de PDF in de browser met [pdf.js](https://mozilla.github.io/pdf.js/) (meegeleverd in `lib/pdfjs`, Apache-2.0-licentie). Zulke resultaten krijgen het label "Nieuw · nog niet opgemaakt". Als de opgemaakte versie verschijnt, wordt automatisch die getoond.
 - **Standaardfilter:** onderwerp *Financiën | Belasting*, vanaf 2018. Dit is aan te passen onder "Filters".
 - **Slim zoeken:**
   1. De site haalt de belangrijke woorden uit de vraag. Woorden als "de leden van de fractie vragen", namen van Kamerleden en partijnamen vallen weg.
@@ -60,5 +61,7 @@ node test/voorbeelden.mjs
 | `css/style.css` | Opmaak (ondersteunt ook donkere modus) |
 | `js/app.js` | Gebruikersinterface: resultaten, selectie, prompt kopiëren |
 | `js/search.js` | Zoeklogica: termen bepalen, zoekdienst bevragen, passages rangschikken |
+| `js/pdf.js` | Tekst uit PDF's halen (recente stukken) |
+| `lib/pdfjs/` | pdf.js-bibliotheek van Mozilla |
 | `js/synoniemen.js` | Synoniemenlijst (zelf aan te vullen) |
 | `test/` | Testscripts met voorbeeldvragen |

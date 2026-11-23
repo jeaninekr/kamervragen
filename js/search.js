@@ -165,7 +165,9 @@ export function buildBaseQuery({ types = ["aanhangsel", "kamerstuk"], subject = 
   const typeCql = types.map((t) => DOC_TYPES[t]?.cql).filter(Boolean);
   if (typeCql.length) parts.push("(" + typeCql.join(" OR ") + ")");
   const subj = SUBJECTS[subject]?.cql;
-  if (subj) parts.push(subj);
+  // Recente, nog "onopgemaakte" stukken hebben nog geen onderwerp-label; die
+  // nemen we altijd mee (de zoektermen filteren ze verder).
+  if (subj) parts.push(`(${subj} OR w.documentstatus=="Onopgemaakt")`);
   if (fromDate) parts.push(`dt.date>=${fromDate}`);
   if (toDate) parts.push(`dt.date<=${toDate}`);
   return parts.join(" AND ");
@@ -176,13 +178,25 @@ function termCql(t) {
   return vs.length === 1 ? vs[0] : "(" + vs.join(" OR ") + ")";
 }
 
-async function fetchWithTimeout(fetchFn, url) {
+async function fetchOnce(fetchFn, url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    return await fetchFn(url, { signal: ctrl.signal });
+    const res = await fetchFn(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// Eén keer opnieuw proberen bij een haperende verbinding.
+async function fetchWithTimeout(fetchFn, url) {
+  try {
+    return await fetchOnce(fetchFn, url);
+  } catch (e) {
+    await new Promise((r) => setTimeout(r, 800));
+    return fetchOnce(fetchFn, url);
   }
 }
 
@@ -216,6 +230,10 @@ export function parseRecord(rec) {
     const tp = m.tpmeta || {};
     const id = m.owmskern.identifier;
     const enriched = gzd.enrichedData || {};
+    const items = [].concat(enriched.itemUrl || []);
+    const itemOf = (kind) => items.find((x) => x.manifestation === kind)?.$ || "";
+    const xmlUrl = itemOf("xml") || (/\.xml$/.test(enriched.url || "") ? enriched.url : "");
+    const pdfUrl = itemOf("pdf") || (/\.pdf$/.test(enriched.url || "") ? enriched.url : "");
     return {
       id,
       title: m.owmskern.title,
@@ -230,7 +248,9 @@ export function parseRecord(rec) {
       vraagnummer: tp.vraagnummer || "",
       vergaderjaar: tp.vergaderjaar || "",
       creator: val(m.owmskern.creator),
-      xmlUrl: enriched.url || "",
+      xmlUrl,
+      pdfUrl,
+      unformatted: tp.documentstatus === "Onopgemaakt",
       url: enriched.preferredUrl || `https://zoek.officielebekendmakingen.nl/${id}.html`,
     };
   } catch {
@@ -353,14 +373,32 @@ export function blocksToPassages(blocks, doc) {
     if (last && last.heading === p.heading && p.text.length < 200 && last.text.length < 1800) last.text += "\n" + p.text;
     else merged.push(p);
   }
+  // Een verslag bij een wetsvoorstel bevat alleen vragen van de Kamer.
+  const questionsOnly = /^Verslag \(initiatief\)wetsvoorstel|lijst van vragen$/i.test(doc.subtype || "");
+  if (questionsOnly) return merged.map((p) => ({ heading: p.heading, question: p.text, answer: "", questionsOnly: true }));
   return merged.map((p) => {
     // Splits "vraag" en "antwoord" als de passage begint met een vraag van leden.
     const lines = p.text.split("\n");
     if (QUESTION_START.test(lines[0]) && lines.length > 1) {
       return { heading: p.heading, question: lines[0], answer: lines.slice(1).join("\n") };
     }
+    if (QUESTION_START.test(lines[0])) {
+      const qa = splitQuestionAnswer(lines[0]);
+      if (qa) return { heading: p.heading, question: qa.question, answer: qa.answer };
+    }
     return { heading: p.heading, question: "", answer: p.text };
   });
+}
+
+// In PDF's staan vraag en antwoord soms in één alinea. Neem de openingszinnen
+// waarin de leden iets vragen of constateren als vraag, de rest als antwoord.
+const ASKING = /\b(vragen|vraagt|vroegen|willen|wensen|constateren|lezen|merken|verzoeken|verwijzen|wijzen|leden|zij|deze leden)\b/i;
+export function splitQuestionAnswer(text) {
+  const sentences = text.split(/(?<=[.?!])\s+(?=[A-Z«“"])/);
+  let k = 0;
+  while (k < sentences.length && (k === 0 || ASKING.test(sentences[k].split(" ").slice(0, 6).join(" ")))) k++;
+  if (k === 0 || k >= sentences.length) return null;
+  return { question: sentences.slice(0, k).join(" "), answer: sentences.slice(k).join(" ") };
 }
 
 // ---------------------------------------------------------------------------
@@ -500,9 +538,17 @@ export async function search(input, opts = {}) {
     candidates.set(id, { doc: docs.get(id), qscore });
   }
 
-  // Bijlagen zonder XML overslaan.
-  let ranked = [...candidates.values()]
-    .filter((c) => c.doc.xmlUrl)
+  // Hetzelfde stuk kan als opgemaakte én als onopgemaakte versie bestaan:
+  // houd dan de opgemaakte versie.
+  const keyOf = (d) => (d.dossier && d.ondernummer ? `kst-${d.dossier}-${d.ondernummer}` : d.vraagnummer ? `ah-${d.vraagnummer}` : d.id);
+  const byKey = new Map();
+  for (const c of candidates.values()) {
+    if (!c.doc.xmlUrl && !(c.doc.pdfUrl && opts.pdfToText)) continue; // geen leesbare tekst
+    const k = keyOf(c.doc);
+    const prev = byKey.get(k);
+    if (!prev || (prev.doc.unformatted && !c.doc.unformatted)) byKey.set(k, { ...c, qscore: Math.max(c.qscore, prev?.qscore || 0) });
+  }
+  let ranked = [...byKey.values()]
     .sort((a, b) => b.qscore - a.qscore || b.doc.date.localeCompare(a.doc.date))
     .slice(0, maxDocs);
 
@@ -510,18 +556,26 @@ export async function search(input, opts = {}) {
   let done = 0;
   progress(`Teksten ophalen (0/${ranked.length})…`);
   const texts = await pool(ranked, 6, async ({ doc }) => {
-    const res = await fetchWithTimeout(fetchFn, doc.xmlUrl);
-    const xml = await res.text();
+    let blocks;
+    if (doc.xmlUrl) {
+      const res = await fetchWithTimeout(fetchFn, doc.xmlUrl);
+      blocks = xmlToBlocks(await res.text());
+    } else {
+      const res = await fetchWithTimeout(fetchFn, doc.pdfUrl);
+      const paras = await opts.pdfToText(new Uint8Array(await res.arrayBuffer()));
+      blocks = paras.map((text) => ({ kind: /^\d+(\.\d+)*\.?\s+\S/.test(text) && text.length < 120 ? "kop" : "al", text, ctx: null }));
+    }
     progress(`Teksten ophalen (${++done}/${ranked.length})…`);
-    return xml;
+    return blocks;
   });
 
+  const failed = texts.filter((t) => !Array.isArray(t)).length;
   progress("Passages rangschikken…");
   const passages = [];
   ranked.forEach(({ doc, qscore }, i) => {
-    const xml = texts[i];
-    if (typeof xml !== "string") return;
-    const ps = blocksToPassages(xmlToBlocks(xml), doc);
+    const blocks = texts[i];
+    if (!Array.isArray(blocks)) return;
+    const ps = blocksToPassages(blocks, doc);
     ps.forEach((p, j) => passages.push({ ...p, doc, docScore: qscore, index: j }));
   });
   const avgLen = passages.reduce((s, p) => s + passageTokens(p).length, 0) / Math.max(1, passages.length);
@@ -546,5 +600,5 @@ export async function search(input, opts = {}) {
     if (top.length >= (opts.maxPassages || 30)) break;
   }
 
-  return { terms, allTerms, total: N, candidates: ranked.map((r) => r.doc), passages: top };
+  return { terms, allTerms, total: N, candidates: ranked.map((r) => r.doc), passages: top, failed, ...(opts.debug ? { all: passages, texts } : {}) };
 }

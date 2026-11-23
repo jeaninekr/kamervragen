@@ -1,4 +1,16 @@
 import { search, applySynonyms, normalize, stem, tokenize, variantsOf, STOPWORDS } from "./search.js";
+import { pdfToParagraphs } from "./pdf.js";
+
+// pdf.js wordt pas geladen als er een PDF gelezen moet worden.
+let pdfjsPromise = null;
+function loadPdfjs() {
+  pdfjsPromise ??= import("../lib/pdfjs/pdf.min.mjs").then((m) => {
+    m.GlobalWorkerOptions.workerSrc = new URL("../lib/pdfjs/pdf.worker.min.mjs", import.meta.url).href;
+    return m;
+  });
+  return pdfjsPromise;
+}
+const pdfToText = async (data) => pdfToParagraphs(data, await loadPdfjs());
 
 const $ = (s) => document.querySelector(s);
 const els = {
@@ -69,6 +81,9 @@ export function citation(doc) {
   if ((m = /^ah-(tk|ek)-(\d{4})(\d{4})-(\d+)/.exec(doc.id))) {
     return `Aanhangsel Handelingen ${m[1] === "ek" ? "I" : "II"} ${m[2]}/${m[3].slice(2)}, nr. ${m[4]}`;
   }
+  if (/^kst-/.test(doc.id) && doc.dossier && doc.ondernummer) {
+    return `Kamerstukken ${kamer}${vj ? " " + vj : ""}, ${doc.dossier}, nr. ${doc.ondernummer}`;
+  }
   if ((m = /^kst-(.+)-([^-]+)$/.exec(doc.id))) {
     return `Kamerstukken ${kamer}${vj ? " " + vj : ""}, ${doc.dossier || m[1]}, nr. ${doc.ondernummer || m[2]}`;
   }
@@ -81,7 +96,8 @@ export function citation(doc) {
 function typeLabel(doc) {
   if (/Aanhangsel/.test(doc.type)) return { text: "Antwoord Kamervragen", cls: "answer" };
   if (/Handelingen/.test(doc.type)) return { text: "Debat", cls: "" };
-  const sub = doc.subtype && doc.subtype !== "Overig" ? doc.subtype : "Kamerstuk";
+  if (/^Verslag \(initiatief\)wetsvoorstel/.test(doc.subtype || "")) return { text: "Verslag (alleen vragen)", cls: "" };
+  const sub = doc.subtype && doc.subtype !== "Overig" ? doc.subtype.replace(/\s*\(nader\/[^)]*\)/, "").replace("n.a.v.", "naar aanleiding van") : "Kamerstuk";
   return { text: sub, cls: "" };
 }
 
@@ -153,7 +169,7 @@ async function runSearch({ query, terms } = {}) {
   updateUrl(query);
   const t0 = performance.now();
   try {
-    const res = await search(query, { ...opts, terms, onProgress: (m) => setStatus(m, { busy: true }) });
+    const res = await search(query, { ...opts, terms, pdfToText, onProgress: (m) => setStatus(m, { busy: true }) });
     state.terms = res.allTerms;
     state.passages = res.passages;
     renderTerms();
@@ -209,6 +225,7 @@ function renderResults() {
       <div class="result-meta">
         <span class="badge ${type.cls}">${esc(type.text)}</span>
         <span>${esc(fmtDate(d.date))}</span>
+        ${d.unformatted ? `<span class="badge new" title="Dit stuk is recent gepubliceerd en nog niet definitief opgemaakt. De tekst komt uit de PDF.">Nieuw · nog niet opgemaakt</span>` : ""}
         ${d.indiener && /Aanhangsel/.test(d.type) ? `<span>Vragensteller: ${esc(d.indiener)}</span>` : ""}
       </div>
       <h3><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(niceTitle(d))}</a></h3>
