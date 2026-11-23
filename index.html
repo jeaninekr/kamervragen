@@ -43,7 +43,12 @@
             </select>
           </fieldset>
           <fieldset>
-            <legend>Dossier (optioneel)</legend>
+            <legend>Niveau 1: voorrang voor dossier</legend>
+            <input type="text" id="level1" inputmode="numeric" placeholder="Bijv. 37053">
+            <span class="small muted">Dit dossier wordt altijd apart doorzocht. De resultaten komen bovenaan, met het label "Niveau 1". Wordt in deze browser onthouden.</span>
+          </fieldset>
+          <fieldset>
+            <legend>Alleen zoeken in dossier (optioneel)</legend>
             <input type="text" name="dossier" id="dossier" inputmode="numeric" placeholder="Bijv. 37053 of 36748, 37053">
             <span class="small muted">Alleen stukken uit deze Kamerstukdossiers.</span>
           </fieldset>
@@ -92,17 +97,28 @@
       <aside id="concept" class="concept" hidden>
         <div class="concept-card">
           <h2>Conceptantwoord</h2>
-          <p class="small"><strong id="sel-count">0</strong> passages geselecteerd. Vink passages aan die als bron moeten dienen.</p>
-          <button class="btn primary block" id="copy-prompt" disabled>Kopieer prompt voor AI-chatbot</button>
-          <p class="small muted">Plak de gekopieerde tekst in de AI-chatbot die je organisatie toestaat. Je eigen prompt kun je hieronder instellen.</p>
-          <details>
-            <summary>Mijn prompt instellen</summary>
-            <p class="small muted">Gebruik <code>{{vraag}}</code> voor de Kamervraag en <code>{{bronnen}}</code> voor de geselecteerde passages. Wordt alleen in deze browser bewaard.</p>
-            <textarea id="prompt-template" rows="12"></textarea>
+          <p class="small"><strong id="sel-count">0</strong> passages geselecteerd. Vink de passages aan die als bron moeten dienen.</p>
+          <label class="field small">Fractie
+            <input type="text" id="fractie" placeholder="Bijv. D66">
+          </label>
+          <button class="btn primary block" id="copy-prompt" disabled>Kopieer vraag + bronnen</button>
+          <button class="btn block" id="copy-fixed" type="button">Kopieer vaste instructie</button>
+          <p class="small muted">Plak de <strong>vaste instructie</strong> één keer in een nieuw chatgesprek, samen met de bijlagen die je instructie noemt. Stuur daarna per Kamervraag <strong>vraag + bronnen</strong>. Paginanummers worden bij het kopiëren opgezocht in de PDF.</p>
+          <details id="prompt-settings">
+            <summary>Prompts instellen</summary>
+            <label class="field small">Vaste instructie (deel A)
+              <textarea id="prompt-fixed" rows="10"></textarea>
+            </label>
+            <label class="field small">Per vraag (deel B). Gebruik <code>{{fractie}}</code>, <code>{{vraag}}</code> en <code>{{bronnen}}</code>.
+              <textarea id="prompt-template" rows="10"></textarea>
+            </label>
+            <p class="small muted">Wordt alleen in deze browser bewaard.</p>
             <div class="row-gap">
               <button class="btn" id="save-prompt" type="button">Opslaan</button>
               <button class="btn" id="reset-prompt" type="button">Standaard terugzetten</button>
+              <button class="btn" id="share-settings" type="button">Deel met collega's</button>
             </div>
+            <p class="small muted">"Deel met collega's" maakt een link met jouw prompts en niveau 1-dossier. Een collega opent die link één keer en neemt de instellingen dan over. De prompts komen niet op GitHub te staan.</p>
           </details>
         </div>
       </aside>

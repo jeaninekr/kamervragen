@@ -1,5 +1,5 @@
 import { search, applySynonyms, normalize, stem, tokenize, variantsOf, STOPWORDS } from "./search.js";
-import { pdfToParagraphs } from "./pdf.js";
+import { pdfToParagraphs, pdfPageTexts, findPage } from "./pdf.js";
 
 // pdf.js wordt pas geladen als er een PDF gelezen moet worden.
 let pdfjsPromise = null;
@@ -17,24 +17,43 @@ const els = {
   form: $("#search-form"), q: $("#q"), btn: $("#search-btn"), status: $("#status"),
   termsPanel: $("#terms-panel"), terms: $("#terms"), addTerm: $("#add-term"), newTerm: $("#new-term"), rerun: $("#rerun"),
   results: $("#results"), concept: $("#concept"), selCount: $("#sel-count"), copy: $("#copy-prompt"),
-  template: $("#prompt-template"), savePrompt: $("#save-prompt"), resetPrompt: $("#reset-prompt"),
+  copyFixed: $("#copy-fixed"), fractie: $("#fractie"), fixed: $("#prompt-fixed"), share: $("#share-settings"),
+  template: $("#prompt-template"), savePrompt: $("#save-prompt"), resetPrompt: $("#reset-prompt"), level1: $("#level1"),
   docs: $("#docs"), docCount: $("#doc-count"), docList: $("#doc-list"), toast: $("#toast"),
   subject: $("#subject"), from: $("#from"), to: $("#to"), dossier: $("#dossier"),
   toolbar: $("#toolbar"), sort: $("#sort"), onlyQa: $("#only-qa"), onlyRecent: $("#only-recent"), shown: $("#shown"),
 };
 
-const DEFAULT_PROMPT = `Je bent beleidsmedewerker bij het ministerie van Financiën, Directoraat-Generaal Fiscale Zaken. Stel een conceptantwoord op voor onderstaande Kamervraag.
+const DEFAULT_FIXED = `Je bent een ervaren beleidsmedewerker bij het ministerie van Financiën, Directoraat-Generaal Fiscale Zaken. Je stelt CONCEPTantwoorden op voor Kamervragen. Een medewerker controleert elk antwoord.
 
-- Baseer je uitsluitend op de bijgevoegde eerdere antwoorden en Kamerstukken.
-- Sluit zo veel mogelijk aan bij de formuleringen die het kabinet eerder heeft gebruikt.
-- Vermeld bij elke inhoudelijke bewering de bron tussen haakjes, bijvoorbeeld (Kamerstukken II 2025/26, 36748, nr. 6).
-- Geef aan waar de bronnen geen antwoord bieden of mogelijk verouderd zijn.
-- Schrijf in de stijl van een antwoord op Kamervragen: zakelijk, kort en zonder opsommingstekens tenzij nodig.
+Bronnen, in deze volgorde:
+- Niveau 1: de passages die in de vraag als [niveau 1] zijn gemarkeerd, en de documenten die bij deze chat zijn gevoegd. Zoek hier altijd eerst.
+- Niveau 2: de passages die als [niveau 2] zijn gemarkeerd (eerdere Kamerstukken en antwoorden op Kamervragen). Gebruik deze alleen voor het deel dat niet in niveau 1 staat. Meld bij elke lijn uit niveau 2 onder 'Aandachtspunten' dat moet worden nagegaan of die nog actueel is.
+Staat het antwoord niet in de bronnen, typ dan op die plek [NIET GEVONDEN IN BRONNEN]. Vul niets zelf aan en gebruik geen eigen kennis.
 
-KAMERVRAAG:
-{{vraag}}
+Regels:
+- Begin met een parafrase: 'De leden van de fractie van [partij] vragen …'.
+- Hergebruik de bestaande lijn zo letterlijk mogelijk, met dezelfde stelligheid ('kan', 'naar verwachting', 'in beginsel' overnemen).
+- Doe geen toezeggingen en kondig geen nieuw beleid aan.
+- Een bron die aan de Tweede Kamer is gericht en 'uw Kamer' noemt, gaat over de Tweede Kamer.
+- Noem bij elke bewering de bron met Kamerstuknummer, datum en het paginanummer dat bij de passage staat, plus een letterlijk citaat van maximaal twee zinnen. Verzin nooit een paginanummer.
 
-BRONNEN:
+Uitvoer per vraag:
+CONCEPTANTWOORD
+[alleen de antwoordtekst]
+
+-------- CONTROLE (niet kopiëren) --------
+Bronnen: …
+Aandachtspunten: …
+
+Bevestig alleen met: 'Klaar. Stuur de eerste vraag.'`;
+
+const DEFAULT_PROMPT = `Fractie: {{fractie}}
+Vraag (letterlijk):
+"{{vraag}}"
+
+Gevonden passages uit Kamerstukken (letterlijke tekst, met vindplaats en paginanummer):
+
 {{bronnen}}`;
 
 const store = {
@@ -148,6 +167,32 @@ function paras(text, hl, { fromHit = false } = {}) {
   return ps.map((p) => (p.startsWith("<p") ? p : `<p>${p}</p>`)).join("");
 }
 
+// Fractienaam(en) uit de vraag halen, in de schrijfwijze van de Schrijfwijzer.
+const PARTY_NAMES = {
+  bbb: "BBB", cda: "CDA", christenunie: "ChristenUnie", cu: "ChristenUnie", d66: "D66", fvd: "FvD",
+  "groenlinks-pvda": "GroenLinks-PvdA", "gl-pvda": "GroenLinks-PvdA", glpvda: "GroenLinks-PvdA", groenlinks: "GroenLinks-PvdA",
+  ja21: "JA21", pvdd: "PvdD", pvv: "PVV", sgp: "SGP", sp: "SP", volt: "Volt", vvd: "VVD", "50plus": "50PLUS",
+  nsc: "NSC", denk: "DENK", pro: "PRO", osf: "OSF",
+};
+export function extractFractie(q) {
+  const found = [];
+  const add = (raw) => {
+    const k = raw.toLowerCase().replace(/[’']/g, "");
+    const name = PARTY_NAMES[k] || (/^[A-Z0-9][\w-]{1,20}$/.test(raw) ? raw : null);
+    if (name && !found.includes(name)) found.push(name);
+  };
+  for (const m of q.matchAll(/\b([\w-]{2,20})-fractie/giu)) add(m[1]);
+  for (const m of q.matchAll(/fracties? van (?:de |het )?([\w-]{2,20})((?:\s*(?:,|en)\s*(?:de |het )?[\w-]{2,20})*)/giu)) {
+    add(m[1]);
+    for (const x of (m[2] || "").split(/\s*(?:,|en)\s*/)) if (x) add(x.replace(/^(de|het)\s+/i, ""));
+  }
+  for (const m of q.matchAll(/\((BBB|CDA|ChristenUnie|D66|FvD|GroenLinks-PvdA|JA21|PvdD|PVV|SGP|SP|Volt|VVD|50PLUS|NSC|DENK)\)/g)) add(m[1]);
+  if (found.length <= 1) return found[0] || "";
+  return found.slice(0, -1).join(", ") + " en " + found[found.length - 1];
+}
+
+const parseDossiers = (v) => (v || "").split(/[\s,;]+/).map((x) => x.replace(/\D/g, "")).filter(Boolean);
+
 // ---------------------------------------------------------------------------
 // Zoeken
 // ---------------------------------------------------------------------------
@@ -165,21 +210,42 @@ async function runSearch({ query, terms } = {}) {
   if (!opts.types.length) { setStatus("Kies minimaal één soort stuk bij de filters.", { error: true }); return; }
 
   state = { query, terms: [], passages: [], selected: new Set() };
+  els.fractie.value = extractFractie(query);
   els.btn.disabled = true;
   els.results.innerHTML = "";
   els.docs.hidden = true;
   updateUrl(query);
   const t0 = performance.now();
   try {
-    const res = await search(query, { ...opts, terms, pdfToText, onProgress: (m) => setStatus(m, { busy: true }) });
+    const level1 = parseDossiers(els.level1.value);
+    const searchOpts = { ...opts, terms, pdfToText };
+    // Niveau 1-dossier(s) apart doorzoeken, zodat die stukken er altijd tussen staan.
+    const level1Search = level1.length && !opts.dossiers.length
+      ? search(query, { ...searchOpts, dossiers: level1, maxDocs: 8, maxPassages: 8 }).catch(() => null)
+      : Promise.resolve(null);
+    const [res, res1] = await Promise.all([
+      search(query, { ...searchOpts, onProgress: (m) => setStatus(m, { busy: true }) }),
+      level1Search,
+    ]);
+    const isLevel1 = (p) => level1.includes(p.doc.dossier);
+    const key = (p) => `${p.doc.id}#${p.index}`;
+    const seen = new Set();
+    const merged = [];
+    for (const p of [...(res1?.passages || []), ...res.passages]) {
+      if (seen.has(key(p))) continue;
+      seen.add(key(p));
+      merged.push({ ...p, level1: isLevel1(p) });
+    }
+    // Niveau 1 bovenaan, verder op relevantie.
+    merged.sort((a, b) => (b.level1 - a.level1) || b.score - a.score);
     state.terms = res.allTerms;
-    state.passages = res.passages;
+    state.passages = merged;
     renderTerms();
     renderResults();
     renderDocs(res.candidates);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     setStatus(res.passages.length
-      ? `${res.passages.length} relevante passages uit ${res.candidates.length} documenten (${secs} s).`
+      ? `${state.passages.length} relevante passages uit ${res.candidates.length} documenten (${secs} s).${res1?.passages?.length ? ` Waarvan ${state.passages.filter((p) => p.level1).length} uit niveau 1.` : ""}`
       : "Geen passende passages gevonden. Probeer andere of minder zoektermen.");
   } catch (e) {
     console.error(e);
@@ -223,7 +289,7 @@ function visiblePassages() {
   let list = state.passages.map((p, i) => ({ p, i }));
   if (els.onlyQa.checked) list = list.filter(({ p }) => p.question && p.answer);
   if (els.onlyRecent.checked) list = list.filter(({ p }) => ageDays(p.doc.date) <= OLD_DAYS);
-  if (els.sort.value === "date") list.sort((a, b) => b.p.doc.date.localeCompare(a.p.doc.date) || b.p.score - a.p.score);
+  if (els.sort.value === "date") list.sort((a, b) => (b.p.level1 - a.p.level1) || b.p.doc.date.localeCompare(a.p.doc.date) || b.p.score - a.p.score);
   return list;
 }
 
@@ -264,6 +330,7 @@ function renderResults() {
     const sel = state.selected.has(i);
     return `<article class="result${sel ? " selected" : ""}" data-i="${i}">
       <div class="result-meta">
+        ${p.level1 ? `<span class="badge level1" title="Uit het dossier dat je als niveau 1 hebt ingesteld">Niveau 1</span>` : ""}
         <span class="badge ${type.cls}">${esc(type.text)}</span>
         <span>${esc(fmtDate(d.date))}</span>
         ${d.unformatted ? `<span class="badge new" title="Dit stuk is recent gepubliceerd en nog niet definitief opgemaakt. De tekst komt uit de PDF.">Nieuw · nog niet opgemaakt</span>` : ""}
@@ -271,7 +338,7 @@ function renderResults() {
         ${d.indiener && /Aanhangsel/.test(d.type) ? `<span>Vragensteller: ${esc(d.indiener)}</span>` : ""}
       </div>
       <h3><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(niceTitle(d))}</a></h3>
-      <div class="ref">${esc(citation(d))}</div>
+      <div class="ref">${esc(citation(d))}${p.page ? ` · <span class="page">blz. ${p.page}</span>` : ""}</div>
       ${p.heading && !/^Vraag/.test(p.heading) ? `<div class="heading">${esc(p.heading)}</div>` : ""}
       <div class="qa${long ? " clamp" : ""}">
         ${p.question ? `<div class="q">${paras(p.question, hl)}</div>` : ""}
@@ -310,20 +377,89 @@ function updateSelection() {
 function passageText(p) {
   const parts = [];
   if (p.question) parts.push(`Vraag: ${p.question.replace(/\n/g, " ")}`);
-  if (p.answer) parts.push(`${p.question ? "Antwoord: " : ""}${p.answer.replace(/\n/g, "\n")}`);
+  if (p.answer) parts.push(`${p.question ? "Antwoord: " : ""}${p.answer}`);
   return parts.join("\n");
+}
+
+function addressedTo(d) {
+  if (/^ah-ek-|^h-ek-/.test(d.id) || /Eerste Kamer/i.test(d.creator)) return "Eerste Kamer";
+  return "Tweede Kamer";
 }
 
 function sourceBlock(p, n) {
   const d = p.doc;
-  return `[${n}] ${citation(d)} (${fmtDate(d.date)}) – ${niceTitle(d)}\n${d.url}\n${passageText(p)}`;
+  const level = p.level1 ? "[niveau 1] " : parseDossiers(els.level1.value).length ? "[niveau 2] " : "";
+  const page = p.page ? `blz. ${p.page}` : p.pageUnknown ? "paginanummer niet gevonden, controleer in het document" : "";
+  return [
+    `[${n}] ${level}${citation(d)} – ${niceTitle(d)} (${fmtDate(d.date)})${page ? ", " + page : ""}`,
+    `Gericht aan: ${addressedTo(d)}${p.heading && !/^Vraag/.test(p.heading) ? ` · Paragraaf: ${p.heading}` : ""}`,
+    `Link: ${d.url}`,
+    passageText(p),
+  ].join("\n");
+}
+
+// Paginanummers opzoeken in de PDF van elk geselecteerd stuk (één keer per stuk).
+const pageCache = new Map();
+async function addPageNumbers(passages) {
+  const todo = passages.filter((p) => !p.page && !p.pageUnknown && p.doc.pdfUrl);
+  if (!todo.length) return;
+  setStatus("Paginanummers opzoeken in de PDF…", { busy: true });
+  const pdfjs = await loadPdfjs();
+  await Promise.all([...new Set(todo.map((p) => p.doc))].map(async (doc) => {
+    if (!pageCache.has(doc.id)) {
+      pageCache.set(doc.id, fetch(doc.pdfUrl)
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+        .then((b) => pdfPageTexts(new Uint8Array(b), pdfjs))
+        .catch(() => null));
+    }
+  }));
+  for (const p of todo) {
+    const pages = await pageCache.get(p.doc.id);
+    const page = pages && (findPage(pages, p.question || p.answer) || findPage(pages, p.answer));
+    if (page) p.page = page; else p.pageUnknown = true;
+  }
+  setStatus(`${state.passages.length} relevante passages. Paginanummers toegevoegd.`);
+  renderResults();
+}
+
+function selectedPassages() {
+  return [...state.selected].sort((a, b) => a - b).map((i) => state.passages[i]);
 }
 
 function buildPrompt() {
   const tpl = els.template.value || DEFAULT_PROMPT;
-  const picked = [...state.selected].sort((a, b) => a - b).map((i) => state.passages[i]);
+  const picked = selectedPassages();
+  // Niveau 1 eerst in de bronnenlijst.
+  picked.sort((a, b) => (b.level1 || 0) - (a.level1 || 0));
   const bronnen = picked.map((p, k) => sourceBlock(p, k + 1)).join("\n\n");
-  return tpl.replaceAll("{{vraag}}", state.query).replaceAll("{{bronnen}}", bronnen);
+  return tpl
+    .replaceAll("{{fractie}}", els.fractie.value.trim() || "[partij]")
+    .replaceAll("{{vraag}}", state.query)
+    .replaceAll("{{bronnen}}", bronnen);
+}
+
+// Instellingen delen via een link (in het #-deel, dat niet naar een server gaat).
+async function packSettings(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let data = bytes;
+  if (typeof CompressionStream !== "undefined") {
+    const cs = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+    data = new Uint8Array(await new Response(cs).arrayBuffer());
+  }
+  let bin = "";
+  data.forEach((b) => { bin += String.fromCharCode(b); });
+  return (typeof CompressionStream !== "undefined" ? "z" : "p") + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function unpackSettings(str) {
+  const kind = str[0];
+  const b64 = str.slice(1).replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  let data = bytes;
+  if (kind === "z") {
+    const ds = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    data = new Uint8Array(await new Response(ds).arrayBuffer());
+  }
+  return JSON.parse(new TextDecoder().decode(data));
 }
 
 async function copyText(text, msg) {
@@ -396,10 +532,56 @@ els.results.addEventListener("change", (e) => {
 
 for (const el of [els.sort, els.onlyQa, els.onlyRecent]) el.addEventListener("change", renderResults);
 
-els.copy.addEventListener("click", () => copyText(buildPrompt(), "Prompt gekopieerd – plak hem in je AI-chatbot"));
-els.template.value = store.get("kz-prompt", DEFAULT_PROMPT);
-els.savePrompt.addEventListener("click", () => { store.set("kz-prompt", els.template.value); toast("Prompt opgeslagen in deze browser"); });
-els.resetPrompt.addEventListener("click", () => { els.template.value = DEFAULT_PROMPT; store.set("kz-prompt", DEFAULT_PROMPT); toast("Standaardprompt teruggezet"); });
+els.copy.addEventListener("click", async () => {
+  els.copy.disabled = true;
+  try {
+    await addPageNumbers(selectedPassages());
+  } catch { /* zonder paginanummers verder */ }
+  els.copy.disabled = state.selected.size === 0;
+  copyText(buildPrompt(), "Vraag + bronnen gekopieerd – plak ze in je AI-chatbot");
+});
+els.copyFixed.addEventListener("click", () => copyText(els.fixed.value || DEFAULT_FIXED, "Vaste instructie gekopieerd – plak die als eerste bericht in een nieuw gesprek"));
+
+els.fixed.value = store.get("kz-prompt-a", DEFAULT_FIXED);
+els.template.value = store.get("kz-prompt-b", DEFAULT_PROMPT);
+els.level1.value = store.get("kz-level1", "");
+els.level1.addEventListener("change", () => store.set("kz-level1", els.level1.value.trim()));
+const saveSettings = () => {
+  store.set("kz-prompt-a", els.fixed.value);
+  store.set("kz-prompt-b", els.template.value);
+  store.set("kz-level1", els.level1.value.trim());
+};
+els.savePrompt.addEventListener("click", () => { saveSettings(); toast("Prompts opgeslagen in deze browser"); });
+els.resetPrompt.addEventListener("click", () => {
+  if (!confirm("Beide prompts terugzetten naar de standaardtekst?")) return;
+  els.fixed.value = DEFAULT_FIXED; els.template.value = DEFAULT_PROMPT; saveSettings();
+  toast("Standaardprompts teruggezet");
+});
+els.share.addEventListener("click", async () => {
+  saveSettings();
+  const packed = await packSettings({ a: els.fixed.value, b: els.template.value, l1: els.level1.value.trim() });
+  const url = `${location.origin}${location.pathname}#instellingen=${packed}`;
+  copyText(url, "Link met instellingen gekopieerd – stuur hem naar je collega's");
+});
+
+// Instellingen van een collega overnemen (link met #instellingen=…).
+(async () => {
+  const m = /#instellingen=([\w-]+)/.exec(location.hash);
+  if (!m) return;
+  try {
+    const st = await unpackSettings(m[1]);
+    if (confirm("Deze link bevat prompts en instellingen van een collega. Wil je die overnemen? Je eigen prompts worden dan vervangen.")) {
+      if (st.a) els.fixed.value = st.a;
+      if (st.b) els.template.value = st.b;
+      if (typeof st.l1 === "string") els.level1.value = st.l1;
+      saveSettings();
+      toast("Instellingen overgenomen");
+    }
+  } catch {
+    toast("Deze link met instellingen is niet leesbaar");
+  }
+  history.replaceState(null, "", location.pathname + location.search);
+})();
 
 // Lege staat met voorbeelden.
 const VOORBEELDEN = [

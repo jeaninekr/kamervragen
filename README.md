@@ -15,7 +15,11 @@ Een zoekwebsite om snel eerdere antwoorden op Kamervragen, Kamerbrieven, nota's 
   5. De passages worden op relevantie gerangschikt.
 - **Filteren en sorteren:** zoek binnen één of meer dossiers (bijvoorbeeld `37053`) via "Filters". Boven de resultaten kun je sorteren op datum en alleen vraag-en-antwoordpassages of alleen stukken van de laatste 2 jaar tonen.
 - **Actualiteit:** antwoorden ouder dan 2 jaar krijgen een waarschuwing. Staat er in hetzelfde dossier een nieuwer stuk tussen de resultaten, dan wordt daarnaar verwezen. Staat dezelfde tekst in meerdere stukken (bijvoorbeeld in de nota aan de Tweede Kamer én in de memorie van antwoord aan de Eerste Kamer), dan zie je hem één keer, met "Dezelfde tekst staat ook in: …".
-- **Conceptantwoord:** vink passages aan als bron en klik op *Kopieer prompt voor AI-chatbot*. De Kamervraag, je eigen prompt en de bronnen (met vindplaats) gaan dan naar het klembord. Je kunt ze plakken in de AI-chatbot die je organisatie toestaat. Je eigen prompt stel je in onder *Mijn prompt instellen*. Die wordt alleen in je eigen browser bewaard.
+- **Conceptantwoord met een AI-chatbot**, in twee delen:
+  - **Kopieer vaste instructie** (deel A): plak die één keer als eerste bericht in een nieuw chatgesprek, samen met de bijlagen die de instructie noemt.
+  - **Kopieer vraag + bronnen** (deel B): per Kamervraag. De fractie wordt automatisch uit de vraag gehaald (aanpasbaar). De aangevinkte passages gaan mee met vindplaats, datum, **paginanummer** (opgezocht in de PDF), aan welke Kamer het stuk gericht is en de letterlijke tekst.
+  - Beide prompts zijn aan te passen onder *Prompts instellen*. Ze worden alleen in je eigen browser bewaard. Met **Deel met collega's** maak je een link waarmee collega's jouw prompts en instellingen in één keer overnemen. De prompts staan in het #-deel van de link, dat niet naar een server wordt gestuurd en niet op GitHub komt.
+- **Niveau 1:** stel onder *Filters* een dossier in (bijvoorbeeld `37053`). Dat dossier wordt bij elke zoekopdracht apart doorzocht. De resultaten staan bovenaan met het label "Niveau 1" en worden in de bronnenlijst als [niveau 1] of [niveau 2] gemarkeerd.
 - **Links delen:** de zoekvraag staat in de adresbalk (`?q=…`), dus je kunt een zoekopdracht doorsturen naar een collega.
 
 Er is geen server en geen database nodig. Alles draait in de browser, en er wordt niets opgeslagen of verstuurd behalve de zoekopdrachten naar officielebekendmakingen.nl.

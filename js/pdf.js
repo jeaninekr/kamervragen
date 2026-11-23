@@ -64,3 +64,34 @@ export async function pdfToParagraphs(data, pdfjsLib) {
   }
   return merged.map((s) => s.trim()).filter((s) => s.length > 1);
 }
+
+// Tekst per pagina, om op te zoeken op welke bladzijde een passage staat.
+export async function pdfPageTexts(data, pdfjsLib) {
+  const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false, disableFontFace: true }).promise;
+  const pages = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const content = await (await doc.getPage(n)).getTextContent();
+    pages.push(content.items.map((it) => it.str || "").join(" "));
+  }
+  await doc.destroy();
+  return pages;
+}
+
+// Vergelijkbare vorm: alleen letters en cijfers (afbreekstreepjes en
+// regelafbrekingen in de PDF tellen dan niet mee).
+const squash = (s) => s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+
+// Paginanummer (1-based) waarop de tekst begint, of null als hij niet gevonden wordt.
+export function findPage(pageTexts, text) {
+  const pages = pageTexts.map(squash);
+  const t = squash(text);
+  if (t.length < 20) return null;
+  for (const start of [0, Math.floor(t.length / 3), Math.floor(t.length / 2)]) {
+    const needle = t.slice(start, start + 70);
+    if (needle.length < 20) continue;
+    for (let i = 0; i < pages.length; i++) if (pages[i].includes(needle)) return i + 1;
+    // Passage loopt over een paginagrens: zoek in twee pagina's achter elkaar.
+    for (let i = 0; i + 1 < pages.length; i++) if ((pages[i] + pages[i + 1]).includes(needle)) return i + 1;
+  }
+  return null;
+}

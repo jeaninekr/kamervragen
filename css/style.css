@@ -109,7 +109,12 @@ fieldset label { display: block; font-size: .92rem; margin: 4px 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 0 0 12px; font-size: .9rem; }
 .toolbar select { width: auto; padding: 5px 8px; font-size: .9rem; }
 .toolbar label { display: inline-flex; gap: 6px; align-items: center; }
-#dossier + .small { display: block; margin-top: 4px; }
+#dossier + .small, #level1 + .small { display: block; margin-top: 4px; }
+.field { display: block; margin: 8px 0; }
+.field input, .field textarea { margin-top: 4px; }
+.concept-card .btn.block + .btn.block { margin-top: 8px; }
+.badge.level1 { background: var(--accent); color: var(--accent-ink); }
+.page { font-weight: 600; }
 .badge.old { background: #fde8e6; color: #8c2a1f; }
 @media (prefers-color-scheme: dark) { .badge.old { background: #3e1f1b; color: #f0a59a; } }
 .notice { font-size: .84rem; color: var(--muted); margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: var(--q-bg); }
