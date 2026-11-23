@@ -19,7 +19,8 @@ const els = {
   results: $("#results"), concept: $("#concept"), selCount: $("#sel-count"), copy: $("#copy-prompt"),
   template: $("#prompt-template"), savePrompt: $("#save-prompt"), resetPrompt: $("#reset-prompt"),
   docs: $("#docs"), docCount: $("#doc-count"), docList: $("#doc-list"), toast: $("#toast"),
-  subject: $("#subject"), from: $("#from"), to: $("#to"),
+  subject: $("#subject"), from: $("#from"), to: $("#to"), dossier: $("#dossier"),
+  toolbar: $("#toolbar"), sort: $("#sort"), onlyQa: $("#only-qa"), onlyRecent: $("#only-recent"), shown: $("#shown"),
 };
 
 const DEFAULT_PROMPT = `Je bent beleidsmedewerker bij het ministerie van Financiën, Directoraat-Generaal Fiscale Zaken. Stel een conceptantwoord op voor onderstaande Kamervraag.
@@ -153,7 +154,8 @@ function paras(text, hl, { fromHit = false } = {}) {
 
 function currentOptions() {
   const types = [...document.querySelectorAll('input[name="type"]:checked')].map((i) => i.value);
-  return { types, subject: els.subject.value, fromDate: els.from.value, toDate: els.to.value };
+  const dossiers = els.dossier.value.split(/[\s,;]+/).filter(Boolean);
+  return { types, subject: els.subject.value, fromDate: els.from.value, toDate: els.to.value, dossiers };
 }
 
 async function runSearch({ query, terms } = {}) {
@@ -213,11 +215,50 @@ function renderTerms() {
   }).join("");
 }
 
+const OLD_DAYS = 730; // antwoorden ouder dan 2 jaar krijgen een waarschuwing
+const ageDays = (d) => (Date.now() - new Date(d + "T12:00:00")) / 864e5;
+
+// Welke passages tonen we, in welke volgorde (filters en sortering uit de balk).
+function visiblePassages() {
+  let list = state.passages.map((p, i) => ({ p, i }));
+  if (els.onlyQa.checked) list = list.filter(({ p }) => p.question && p.answer);
+  if (els.onlyRecent.checked) list = list.filter(({ p }) => ageDays(p.doc.date) <= OLD_DAYS);
+  if (els.sort.value === "date") list.sort((a, b) => b.p.doc.date.localeCompare(a.p.doc.date) || b.p.score - a.p.score);
+  return list;
+}
+
+// Nieuwste stuk per dossier onder de resultaten, om te wijzen op een mogelijk nieuwere lijn.
+function newestPerDossier() {
+  const m = new Map();
+  for (const p of state.passages) {
+    const k = p.doc.dossier;
+    if (!k) continue;
+    if (!m.has(k) || p.doc.date > m.get(k).date) m.set(k, p.doc);
+  }
+  return m;
+}
+
 function renderResults() {
   const hl = highlighter(state.terms.filter((t) => t.df > 0));
   els.concept.hidden = state.passages.length === 0;
-  els.results.innerHTML = state.passages.map((p, i) => {
+  els.toolbar.hidden = state.passages.length === 0;
+  const list = visiblePassages();
+  const newest = newestPerDossier();
+  els.shown.textContent = list.length === state.passages.length ? "" : `${list.length} van ${state.passages.length} getoond`;
+  if (state.passages.length && !list.length) {
+    els.results.innerHTML = `<div class="empty">Geen passages over met deze filters.</div>`;
+    updateSelection();
+    return;
+  }
+  els.results.innerHTML = list.map(({ p, i }) => {
     const d = p.doc;
+    const old = ageDays(d.date) > OLD_DAYS;
+    const nd = d.dossier && newest.get(d.dossier);
+    const newer = nd && nd.id !== d.id && nd.date > d.date ? nd : null;
+    const notices = [];
+    if (old) notices.push(`<strong>Let op:</strong> dit antwoord is ouder dan 2 jaar. Controleer of dit nog de lijn van het kabinet is.`);
+    if (newer) notices.push(`Er is een nieuwer stuk in dit dossier: <a href="${esc(newer.url)}" target="_blank" rel="noopener">${esc(citation(newer))}</a> (${esc(fmtDate(newer.date))}).`);
+    if (p.alsoIn?.length) notices.push(`Dezelfde tekst staat ook in: ${p.alsoIn.map((o) => `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(citation(o))}</a>`).join(", ")}.`);
     const type = typeLabel(d);
     const long = (p.question.length + p.answer.length) > 1100;
     const sel = state.selected.has(i);
@@ -226,6 +267,7 @@ function renderResults() {
         <span class="badge ${type.cls}">${esc(type.text)}</span>
         <span>${esc(fmtDate(d.date))}</span>
         ${d.unformatted ? `<span class="badge new" title="Dit stuk is recent gepubliceerd en nog niet definitief opgemaakt. De tekst komt uit de PDF.">Nieuw · nog niet opgemaakt</span>` : ""}
+        ${old ? `<span class="badge old" title="Controleer of dit nog de actuele lijn is">Ouder dan 2 jaar</span>` : ""}
         ${d.indiener && /Aanhangsel/.test(d.type) ? `<span>Vragensteller: ${esc(d.indiener)}</span>` : ""}
       </div>
       <h3><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(niceTitle(d))}</a></h3>
@@ -235,6 +277,7 @@ function renderResults() {
         ${p.question ? `<div class="q">${paras(p.question, hl)}</div>` : ""}
         ${p.answer ? `<div class="a${p.question ? " labelled" : ""}">${paras(p.answer, hl, { fromHit: long })}</div>` : ""}
       </div>
+      ${notices.map((n) => `<div class="notice">${n}</div>`).join("")}
       <div class="result-actions">
         <label><input type="checkbox" class="pick" ${sel ? "checked" : ""}> Gebruik als bron</label>
         ${long ? `<button type="button" class="linkish more">Toon alles</button>` : ""}
@@ -350,6 +393,8 @@ els.results.addEventListener("change", (e) => {
   card.classList.toggle("selected", e.target.checked);
   updateSelection();
 });
+
+for (const el of [els.sort, els.onlyQa, els.onlyRecent]) el.addEventListener("change", renderResults);
 
 els.copy.addEventListener("click", () => copyText(buildPrompt(), "Prompt gekopieerd – plak hem in je AI-chatbot"));
 els.template.value = store.get("kz-prompt", DEFAULT_PROMPT);

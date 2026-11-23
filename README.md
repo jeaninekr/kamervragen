@@ -13,6 +13,8 @@ Een zoekwebsite om snel eerdere antwoorden op Kamervragen, Kamerbrieven, nota's 
   3. Hij zoekt de documenten waarin de meeste en zeldzaamste termen samen voorkomen.
   4. Die documenten worden opgehaald en opgedeeld in passages (vraag + antwoord, of alinea's onder een kopje).
   5. De passages worden op relevantie gerangschikt.
+- **Filteren en sorteren:** zoek binnen één of meer dossiers (bijvoorbeeld `37053`) via "Filters". Boven de resultaten kun je sorteren op datum en alleen vraag-en-antwoordpassages of alleen stukken van de laatste 2 jaar tonen.
+- **Actualiteit:** antwoorden ouder dan 2 jaar krijgen een waarschuwing. Staat er in hetzelfde dossier een nieuwer stuk tussen de resultaten, dan wordt daarnaar verwezen. Staat dezelfde tekst in meerdere stukken (bijvoorbeeld in de nota aan de Tweede Kamer én in de memorie van antwoord aan de Eerste Kamer), dan zie je hem één keer, met "Dezelfde tekst staat ook in: …".
 - **Conceptantwoord:** vink passages aan als bron en klik op *Kopieer prompt voor AI-chatbot*. De Kamervraag, je eigen prompt en de bronnen (met vindplaats) gaan dan naar het klembord. Je kunt ze plakken in de AI-chatbot die je organisatie toestaat. Je eigen prompt stel je in onder *Mijn prompt instellen*. Die wordt alleen in je eigen browser bewaard.
 - **Links delen:** de zoekvraag staat in de adresbalk (`?q=…`), dus je kunt een zoekopdracht doorsturen naar een collega.
 

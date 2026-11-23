@@ -43,6 +43,11 @@
             </select>
           </fieldset>
           <fieldset>
+            <legend>Dossier (optioneel)</legend>
+            <input type="text" name="dossier" id="dossier" inputmode="numeric" placeholder="Bijv. 37053 of 36748, 37053">
+            <span class="small muted">Alleen stukken uit deze Kamerstukdossiers.</span>
+          </fieldset>
+          <fieldset>
             <legend>Periode</legend>
             <div class="dates">
               <label>Vanaf <input type="date" name="from" id="from" value="2018-01-01"></label>
@@ -69,7 +74,20 @@
     </section>
 
     <div class="layout">
-      <section id="results" class="results" aria-label="Zoekresultaten"></section>
+      <div>
+        <div id="toolbar" class="toolbar" hidden>
+          <label>Sorteren:
+            <select id="sort">
+              <option value="relevance">Meest relevant</option>
+              <option value="date">Nieuwste eerst</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="only-qa"> Alleen vraag + antwoord</label>
+          <label><input type="checkbox" id="only-recent"> Alleen laatste 2 jaar</label>
+          <span id="shown" class="muted small"></span>
+        </div>
+        <section id="results" class="results" aria-label="Zoekresultaten"></section>
+      </div>
 
       <aside id="concept" class="concept" hidden>
         <div class="concept-card">

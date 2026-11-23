@@ -160,7 +160,7 @@ export function variantsOf(t) {
 // SRU-zoekdienst
 // ---------------------------------------------------------------------------
 
-export function buildBaseQuery({ types = ["aanhangsel", "kamerstuk"], subject = "belasting", fromDate = "2018-01-01", toDate = "" } = {}) {
+export function buildBaseQuery({ types = ["aanhangsel", "kamerstuk"], subject = "belasting", fromDate = "2018-01-01", toDate = "", dossiers = [] } = {}) {
   const parts = ["c.product-area==officielepublicaties"];
   const typeCql = types.map((t) => DOC_TYPES[t]?.cql).filter(Boolean);
   if (typeCql.length) parts.push("(" + typeCql.join(" OR ") + ")");
@@ -168,6 +168,8 @@ export function buildBaseQuery({ types = ["aanhangsel", "kamerstuk"], subject = 
   // Recente, nog "onopgemaakte" stukken hebben nog geen onderwerp-label; die
   // nemen we altijd mee (de zoektermen filteren ze verder).
   if (subj) parts.push(`(${subj} OR w.documentstatus=="Onopgemaakt")`);
+  const dos = dossiers.map((d) => String(d).replace(/\D/g, "")).filter(Boolean);
+  if (dos.length) parts.push("(" + dos.map((d) => `w.dossiernummer==${d}`).join(" OR ") + ")");
   if (fromDate) parts.push(`dt.date>=${fromDate}`);
   if (toDate) parts.push(`dt.date<=${toDate}`);
   return parts.join(" AND ");
@@ -450,6 +452,13 @@ export function scorePassages(passages, terms, avgLen) {
   return passages;
 }
 
+// Herken (vrijwel) identieke antwoordteksten, bijv. in de nota aan de Tweede
+// Kamer en later in de memorie van antwoord aan de Eerste Kamer.
+function dedupeKey(p) {
+  const t = tokenize(p.answer || p.question).join(" ");
+  return t.length > 160 ? t.slice(0, 300) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Hoofdfunctie
 // ---------------------------------------------------------------------------
@@ -486,7 +495,9 @@ export async function search(input, opts = {}) {
   const allTerms = terms;
   terms = terms.filter((t) => t.df > 0);
   // Heel zeldzame woorden (bijv. Engelse termen) niet laten overheersen.
-  for (const t of terms) t.idf = Math.min(idf(t.df, N), idf(15, N)) * (t.weak ? 0.5 : 1);
+  // (werkt ook bij een klein aantal stukken, bijv. met een dossierfilter)
+  const floorDf = Math.min(15, N * 0.01);
+  for (const t of terms) t.idf = idf(Math.max(t.df, floorDf), N) * (t.weak ? 0.5 : 1);
   if (!terms.length) {
     const e = new Error("Geen van de zoektermen komt voor in de geselecteerde stukken.");
     e.allTerms = allTerms;
@@ -531,7 +542,7 @@ export async function search(input, opts = {}) {
   const results = await pool(jobs, 6, (j) => sru(fetchFn, `${base} AND ${j.q}`, j.max));
   results.forEach((r, i) => note(r, jobs[i].ts));
 
-  const cappedIdf = (t) => Math.min(t.idf, idf(5, N));
+  const cappedIdf = (t) => Math.min(t.idf, idf(Math.min(5, N * 0.005), N));
   const candidates = new Map();
   for (const [id, ts] of known) {
     const qscore = [...ts].reduce((s, t) => s + cappedIdf(t), 0);
@@ -591,8 +602,17 @@ export async function search(input, opts = {}) {
   passages.sort((a, b) => b.score - a.score);
   const perDoc = new Map();
   const top = [];
+  const seenText = new Map(); // zelfde antwoord in meerdere stukken -> één keer tonen
   for (const p of passages) {
     if (p.score <= 0) break;
+    const sig = dedupeKey(p);
+    if (sig && seenText.has(sig)) {
+      const first = seenText.get(sig);
+      if (first.doc.id !== p.doc.id && !first.alsoIn.some((d) => d.id === p.doc.id)) first.alsoIn.push(p.doc);
+      continue;
+    }
+    p.alsoIn = [];
+    if (sig) seenText.set(sig, p);
     const n = perDoc.get(p.doc.id) || 0;
     if (n >= 3) continue;
     perDoc.set(p.doc.id, n + 1);
