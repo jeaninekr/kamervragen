@@ -241,12 +241,20 @@ async function runSearch({ query, terms } = {}) {
     state.terms = res.allTerms;
     state.passages = merged;
     renderTerms();
-    renderResults();
     renderDocs(res.candidates);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    if (res.docsUnavailable && !merged.length) {
+      renderFallback(res.candidates);
+      setStatus("De documentendatabank van officielebekendmakingen.nl reageert nu niet. Daardoor kunnen geen tekstfragmenten worden getoond. Hieronder staan wel de best passende stukken.", { error: true });
+      return;
+    }
+    renderResults();
     setStatus(res.passages.length
       ? `${state.passages.length} relevante passages uit ${res.candidates.length} documenten (${secs} s).${res1?.passages?.length ? ` Waarvan ${state.passages.filter((p) => p.level1).length} uit niveau 1.` : ""}`
       : "Geen passende passages gevonden. Probeer andere of minder zoektermen.");
+    if (res.failed && !res.docsUnavailable) {
+      els.status.insertAdjacentHTML("beforeend", ` <span class="muted">(${res.failed} documenten konden niet worden opgehaald.)</span>`);
+    }
   } catch (e) {
     console.error(e);
     if (e.allTerms) { state.terms = e.allTerms; renderTerms(); }
@@ -354,6 +362,23 @@ function renderResults() {
     </article>`;
   }).join("");
   updateSelection();
+}
+
+// Als de teksten niet op te halen zijn: toon de gevonden stukken als lijst met links.
+function renderFallback(docs) {
+  els.concept.hidden = true;
+  els.toolbar.hidden = true;
+  els.results.innerHTML = `<div class="notice-box">
+      <strong>Storing bij officielebekendmakingen.nl.</strong> Het zoeken werkt, maar de tekst van de stukken is op dit moment niet op te halen.
+      Hieronder staan de stukken die het best bij je vraag passen, op volgorde van relevantie. Open een stuk om de tekst te lezen, of probeer het later opnieuw.
+    </div>` + docs.slice(0, 20).map((d) => {
+    const type = typeLabel(d);
+    return `<article class="result">
+      <div class="result-meta"><span class="badge ${type.cls}">${esc(type.text)}</span><span>${esc(fmtDate(d.date))}</span></div>
+      <h3><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(niceTitle(d))}</a></h3>
+      <div class="ref">${esc(citation(d))}</div>
+    </article>`;
+  }).join("");
 }
 
 function renderDocs(docs) {

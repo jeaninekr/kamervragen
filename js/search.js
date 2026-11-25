@@ -8,7 +8,8 @@ import { SYNONIEMEN } from "./synoniemen.js";
 
 export const SRU_URL = "https://repository.overheid.nl/sru";
 const RARE_DF = 300; // termen die in maximaal zoveel stukken staan, halen we volledig op
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 20000;     // zoekdienst
+const DOC_TIMEOUT_MS = 12000; // één document ophalen
 
 export const DOC_TYPES = {
   aanhangsel: { label: "Antwoorden op Kamervragen", cql: 'dt.type="Aanhangsel van de Handelingen"' },
@@ -180,9 +181,9 @@ function termCql(t) {
   return vs.length === 1 ? vs[0] : "(" + vs.join(" OR ") + ")";
 }
 
-async function fetchOnce(fetchFn, url) {
+async function fetchOnce(fetchFn, url, timeout = TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
     const res = await fetchFn(url, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -192,13 +193,15 @@ async function fetchOnce(fetchFn, url) {
   }
 }
 
-// Eén keer opnieuw proberen bij een haperende verbinding.
-async function fetchWithTimeout(fetchFn, url) {
+// Eén keer opnieuw proberen bij een haperende verbinding. Na een time-out niet
+// opnieuw proberen: dan reageert de server niet en kost wachten alleen tijd.
+async function fetchWithTimeout(fetchFn, url, timeout = TIMEOUT_MS) {
   try {
-    return await fetchOnce(fetchFn, url);
+    return await fetchOnce(fetchFn, url, timeout);
   } catch (e) {
+    if (e.name === "AbortError") throw e;
     await new Promise((r) => setTimeout(r, 800));
-    return fetchOnce(fetchFn, url);
+    return fetchOnce(fetchFn, url, timeout);
   }
 }
 
@@ -564,21 +567,36 @@ export async function search(input, opts = {}) {
     .slice(0, maxDocs);
 
   // 3. Teksten ophalen en in passages opdelen.
-  let done = 0;
+  // Reageert de documentendatabank niet (eerste pogingen mislukken allemaal),
+  // stop dan meteen in plaats van alle documenten af te wachten.
+  let done = 0, ok = 0, bad = 0;
+  const giveUp = () => ok === 0 && bad >= 4;
   progress(`Teksten ophalen (0/${ranked.length})…`);
   const texts = await pool(ranked, 6, async ({ doc }) => {
+    if (giveUp()) throw new Error("overgeslagen");
     let blocks;
-    if (doc.xmlUrl) {
-      const res = await fetchWithTimeout(fetchFn, doc.xmlUrl);
-      blocks = xmlToBlocks(await res.text());
-    } else {
-      const res = await fetchWithTimeout(fetchFn, doc.pdfUrl);
-      const paras = await opts.pdfToText(new Uint8Array(await res.arrayBuffer()));
-      blocks = paras.map((text) => ({ kind: /^\d+(\.\d+)*\.?\s+\S/.test(text) && text.length < 120 ? "kop" : "al", text, ctx: null }));
+    try {
+      blocks = await fetchBlocks(doc);
+      ok++;
+    } catch (e) {
+      bad++;
+      throw e;
     }
     progress(`Teksten ophalen (${++done}/${ranked.length})…`);
     return blocks;
   });
+  async function fetchBlocks(doc) {
+    let blocks;
+    if (doc.xmlUrl) {
+      const res = await fetchWithTimeout(fetchFn, doc.xmlUrl, DOC_TIMEOUT_MS);
+      blocks = xmlToBlocks(await res.text());
+    } else {
+      const res = await fetchWithTimeout(fetchFn, doc.pdfUrl, DOC_TIMEOUT_MS);
+      const paras = await opts.pdfToText(new Uint8Array(await res.arrayBuffer()));
+      blocks = paras.map((text) => ({ kind: /^\d+(\.\d+)*\.?\s+\S/.test(text) && text.length < 120 ? "kop" : "al", text, ctx: null }));
+    }
+    return blocks;
+  }
 
   const failed = texts.filter((t) => !Array.isArray(t)).length;
   progress("Passages rangschikken…");
@@ -620,5 +638,5 @@ export async function search(input, opts = {}) {
     if (top.length >= (opts.maxPassages || 30)) break;
   }
 
-  return { terms, allTerms, total: N, candidates: ranked.map((r) => r.doc), passages: top, failed, ...(opts.debug ? { all: passages, texts } : {}) };
+  return { terms, allTerms, total: N, candidates: ranked.map((r) => r.doc), passages: top, failed, docsUnavailable: ranked.length > 0 && ok === 0, ...(opts.debug ? { all: passages, texts } : {}) };
 }
